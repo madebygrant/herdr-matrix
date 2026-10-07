@@ -1,0 +1,50 @@
+id = "madebygrant.herdr-matrix"
+name = "Matrix"
+version = "0.2.0"
+min_herdr_version = "0.8.2"
+description = "Matrix theming for Herdr: Agent names, idle rain and exit messages"
+platforms = ["macos", "linux"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "pane.closed"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "pane.exited"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "tab.closed"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "workspace.closed"
+command = ["python3", "-I", "matrix.py"]
+
+[[panes]]
+id = "rain"
+title = "Rain"
+placement = "overlay"
+command = ["python3", "-I", "rain.py"]
+
+[[actions]]
+id = "toggle-hide"
+title = "Matrix: hide or show this agent"
+description = "Toggle whether the focused agent appears in the agents list"
+contexts = ["global"]
+command = ["python3", "-I", "matrix.py", "toggle-hide"]
+
+[[actions]]
+id = "show-all"
+title = "Matrix: show all agents"
+description = "Unhide every agent in the agents list"
+contexts = ["global"]
+command = ["python3", "-I", "matrix.py", "show-all"]
