@@ -1,5 +1,7 @@
 # herdr-matrix
 
+![Herdr with the Matrix plugin: agents named brown, smith and jones with status text in the sidebar, and digital rain over the pane](assets/herdr-matrix.webp)
+
 A Herdr plugin that renames agents after the Agents in The Matrix, gives them Matrix status wording, and runs digital rain when everything is quiet.
 
 ## What it does
