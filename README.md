@@ -7,7 +7,7 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 - Renames each new agent: smith, brown, jones, johnson, jackson, thompson, gray. Then generic surnames (williams, white, adams and so on), then `smith-2`, `smith-3`. Agents you already named keep their names, and a name is free again when its agent closes. Herdr only accepts lowercase names.
 - Sets status labels: working is "jacked in", idle is "standing by", blocked is "awaiting operator", done is "exited". Show them with the `state_text` sidebar token.
 - Opens a rain overlay after every agent has been "standing by" for 10 minutes. Any key dismisses it, and any status change resets the countdown. It never opens a second overlay.
-- Shows a toast, "Agent smith has been deleted.", when an agent's pane goes away.
+- Shows a toast, "Agent smith has been deleted.", when an agent's pane goes away. If several close together, one toast lists them all. Toasts need `delivery = "herdr"` in the config below, or Herdr drops them.
 - Hides the focused agent from the agents list with `madebygrant.herdr-matrix.toggle-hide`, and brings it back when you run it again on that pane. `madebygrant.herdr-matrix.show-all` unhides everyone. The agent keeps running in its tab. Only the sidebar row goes.
 - Prints "N agents in the Matrix" for the tab bar with `tab_bar.py`.
 
@@ -27,7 +27,7 @@ It needs Herdr 0.8.2 or newer and `python3`. Run `link` again after editing `her
 
 ## Config
 
-The plugin covers names, labels, rain and toasts. The window title, tab bar, sidebar rows and keys live in `~/.config/herdr/config.toml`:
+The plugin covers names, labels, rain and the toast text. The window title, tab bar, sidebar rows, keys and toast delivery live in `~/.config/herdr/config.toml`:
 
 ```toml
 [ui]
@@ -35,6 +35,12 @@ window_title = "THE MATRIX · {workspace}"
 tab_bar_right = [
   { type = "command", command = "python3 -I /path/to/herdr-matrix/tab_bar.py" },
 ]
+
+[ui.toast]
+delivery = "herdr"
+
+[ui.toast.herdr]
+position = "top-right"
 
 [ui.sidebar.agents]
 rows = [["state_icon", { token = "agent", fg = "#86BC9E", bold = true, dim = false }, { token = "state_text", dim = true }], [{ token = "workspace", bold = false }, "tab"]]
@@ -78,4 +84,5 @@ The first command opens the rain now. The second shows recent hook runs and thei
   ```
 
 - The kill message needs the plugin to have recorded the agent's name first, so agents that predate the plugin get none until a status event fires.
+- Herdr shows one toast at a time. A second one returns `busy`, so the plugin retries the kill message up to four times, three seconds apart, and may still drop it.
 - Herdr decides how often the tab bar command runs.

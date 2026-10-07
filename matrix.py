@@ -214,6 +214,19 @@ def show_all():
     run("notification", "show", "All agents are visible")
 
 
+def toast(names):
+    if len(names) == 1:
+        text = f"Agent {names[0]} has been deleted."
+    else:
+        text = f"Agents {', '.join(names[:-1])} and {names[-1]} have been deleted."
+    # Herdr shows one toast at a time and answers "busy" to the rest.
+    for _ in range(4):
+        shown = run("notification", "show", text).get("result", {}).get("shown")
+        if shown:
+            return
+        time.sleep(3)
+
+
 def reap():
     # Closing a tab or workspace may not emit pane.closed, so diff against live agents.
     current = agents()
@@ -226,8 +239,8 @@ def reap():
         for pane in gone:
             names.pop(pane)
         write_json("names.json", names)
-    for name in gone.values():
-        run("notification", "show", f"Agent {name} has been deleted.")
+    if gone:
+        toast(list(gone.values()))
 
 
 def main():
