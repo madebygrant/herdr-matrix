@@ -86,3 +86,16 @@ The first command opens the rain now. The second shows recent hook runs and thei
 - The kill message needs the plugin to have recorded the agent's name first, so agents that predate the plugin get none until a status event fires.
 - Herdr shows one toast at a time. A second one returns `busy`, so the plugin retries the kill message up to four times, three seconds apart, and may still drop it.
 - Herdr decides how often the tab bar command runs.
+
+## Releasing
+
+```sh
+scripts/release.sh patch   # or minor, major
+scripts/release.sh current # tag the version already in herdr-plugin.toml
+```
+
+Add `--dry-run` to print the steps without running them. The script needs a clean `main` that matches `origin/main`. It bumps `version` in `herdr-plugin.toml`, commits it, tags `vX.Y.Z`, pushes both, and creates a GitHub release with generated notes if `gh` is installed. Users can pin a release with `herdr plugin install --ref vX.Y.Z madebygrant/herdr-matrix`.
+
+## License
+
+MIT. See `LICENSE`.
