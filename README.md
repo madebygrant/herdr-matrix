@@ -19,13 +19,7 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 herdr plugin install madebygrant/herdr-matrix
 ```
 
-Or link a local checkout:
-
-```sh
-herdr plugin link /path/to/herdr-matrix
-```
-
-It needs Herdr 0.8.2 or newer and `python3`. Run `link` again after editing `herdr-plugin.toml`. Edits to the Python files apply on the next event.
+It needs Herdr 0.8.2 or newer and `python3`.
 
 ## Config
 
