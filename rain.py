@@ -15,10 +15,8 @@ DIM = "\x1b[38;2;0;59;0m"
 
 
 def main():
-    cols, rows = shutil.get_terminal_size()
-    # Half-width katakana are one cell wide, so one drop per column works.
-    drops = [random.randint(-rows, 0) for _ in range(cols)]
-    speed = [random.choice((1, 1, 2)) for _ in range(cols)]
+    boss = os.environ.get("MATRIX_BOSS") == "1"
+    cols, rows = 0, 0
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     out = sys.stdout
@@ -26,6 +24,13 @@ def main():
     try:
         tty.setcbreak(fd)
         while True:
+            # Boss rain runs for hours, so follow pane resizes instead of sizing once.
+            if shutil.get_terminal_size() != (cols, rows):
+                cols, rows = shutil.get_terminal_size()
+                # Half-width katakana are one cell wide, so one drop per column works.
+                drops = [random.randint(-rows, 0) for _ in range(cols)]
+                speed = [random.choice((1, 1, 2)) for _ in range(cols)]
+                out.write("\x1b[2J")
             for c in range(cols):
                 y = drops[c]
                 for dy, color in ((0, HEAD), (1, BRIGHT), (3, MID), (8, DIM)):
@@ -42,7 +47,9 @@ def main():
             out.flush()
             if select.select([fd], [], [], 0.06)[0]:
                 os.read(fd, 1024)
-                break
+                # Boss mode rain stays until boss mode closes it, whatever gets typed.
+                if not boss:
+                    break
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
         out.write("\x1b[0m\x1b[?25h\x1b[?1049l")

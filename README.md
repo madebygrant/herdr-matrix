@@ -10,8 +10,8 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 - Sets status labels: working is "jacked in", idle is "standing by", blocked is "awaiting operator", done is "exited". Show them with the `state_text` sidebar token.
 - Opens a rain overlay after every agent has been "standing by" for 10 minutes. Any key dismisses it, and any status change resets the countdown. It never opens a second overlay.
 - Shows a toast, "Agent smith has been deleted.", when an agent's pane goes away. If several close together, one toast lists them all. Toasts need `delivery = "herdr"` in the config below, or Herdr drops them.
-- Hides the focused agent from the agents list with `madebygrant.herdr-matrix.toggle-hide`, and brings it back when you run it again on that pane. `madebygrant.herdr-matrix.show-all` unhides everyone. The agent keeps running in its tab. Only the sidebar row goes.
-- Prints "N agents in the Matrix" for the tab bar with `tab_bar.py`.
+- Boss mode. `madebygrant.herdr-matrix.mark-space` marks or unmarks the focused space. `madebygrant.herdr-matrix.boss-mode` then hides every agent in the marked spaces and swaps each marked space's sidebar name for a cover name: space-alpha, space-beta and so on, in the order the spaces were marked. Each tab in a marked space is covered with digital rain that ignores keys. Run it again to bring everything back. Marks survive boss mode turning off, and a closed space drops its mark. Boss mode shows no toast, and it comes back on after a server restart if it was on before.
+- Prints "N agents in the Matrix" for the tab bar with `tab_bar.py`. Agents boss mode hides are left out of the count.
 
 ## Install
 
@@ -42,16 +42,16 @@ position = "top-right"
 rows = [["state_icon", { token = "agent", fg = "#86BC9E", bold = true, dim = false }, { token = "state_text", dim = true }], [{ token = "workspace", bold = false }, "tab"]]
 
 [[keys.command]]
-key = "prefix+m"
+key = "prefix+b"
 type = "plugin_action"
-command = "madebygrant.herdr-matrix.toggle-hide"
-description = "matrix: hide or show agent"
+command = "madebygrant.herdr-matrix.mark-space"
+description = "matrix: mark space for boss mode"
 
 [[keys.command]]
-key = "prefix+shift+m"
+key = "prefix+shift+b"
 type = "plugin_action"
-command = "madebygrant.herdr-matrix.show-all"
-description = "matrix: show all agents"
+command = "madebygrant.herdr-matrix.boss-mode"
+description = "matrix: toggle boss mode"
 ```
 
 Set the `tab_bar.py` path to where the plugin lives, then run `herdr server reload-config`.
@@ -82,6 +82,13 @@ The first command opens the rain now. The second shows recent hook runs and thei
 - The kill message needs the plugin to have recorded the agent's name first, so agents that predate the plugin get none until a status event fires.
 - Herdr shows one toast at a time. A second one returns `busy`, so the plugin retries the kill message up to four times, three seconds apart, and may still drop it.
 - Herdr decides how often the tab bar command runs.
+- Herdr can't remove a space's sidebar row, so boss mode disguises it. The cover replaces the `workspace` and `numbered` tokens. A row built from other tokens, and a window title using `{workspace}`, still show the real name.
+- When a space is created, renamed or moved during boss mode, the plugin waits a second for other plugins to rewrite their tokens, then covers the space again. The real name can show for that second.
+- Herdr can only put a pane in another space by zooming it over an existing pane, and it focuses that space even when asked not to. Turning boss mode on therefore jumps through each marked space and back. A tab opened in a marked space while boss mode is on gets no rain, and unzooming a tab shows what's under the rain.
+
+## Upgrading from 0.2
+
+Boss mode replaces the `toggle-hide` and `show-all` actions. Delete their `[[keys.command]]` bindings. `herdr config check` doesn't flag them, and pressing one only gets `plugin_action_not_found`. The first plugin hook after you reinstall shows any agents you had hidden.
 
 ## Releasing
 

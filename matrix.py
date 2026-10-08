@@ -23,17 +23,22 @@ LABELS = {
     "done": "exited",
 }
 IDLE_SECONDS = 600
+COVERS = [f"space-{g}" for g in (
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu",
+    "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega")]
 
 herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
+PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "madebygrant.herdr-matrix")
 state_dir = os.environ.get("HERDR_PLUGIN_STATE_DIR", ".")
 os.makedirs(state_dir, exist_ok=True)
 
 
 def run(*args):
-    out = subprocess.run([herdr, *args], capture_output=True, text=True)
+    # A hung call would otherwise hold boss.lock and stall every later keypress.
     try:
+        out = subprocess.run([herdr, *args], capture_output=True, text=True, timeout=10)
         return json.loads(out.stdout)
-    except ValueError:
+    except (subprocess.TimeoutExpired, ValueError):
         return {}
 
 
@@ -43,17 +48,20 @@ def agents():
 
 
 def api(method, params):
-    sock = socket.socket(socket.AF_UNIX)
-    sock.connect(os.environ["HERDR_SOCKET_PATH"])
-    sock.sendall((json.dumps({"id": "matrix", "method": method, "params": params}) + "\n").encode())
     data = b""
-    while not data.endswith(b"\n"):
-        chunk = sock.recv(65536)
-        if not chunk:
-            break
-        data += chunk
-    sock.close()
-    return json.loads(data) if data.strip() else {}
+    try:
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.settimeout(5)
+            sock.connect(os.environ["HERDR_SOCKET_PATH"])
+            sock.sendall((json.dumps({"id": "matrix", "method": method, "params": params}) + "\n").encode())
+            while not data.endswith(b"\n"):
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+        return json.loads(data) if data.strip() else {}
+    except (OSError, KeyError, ValueError):
+        return {}
 
 
 def state_path(name):
@@ -176,9 +184,13 @@ def on_status():
         write_json("waiter.json", proc.pid)
 
 
+def panes():
+    return run("pane", "list").get("result", {}).get("panes", [])
+
+
 def rain_open():
-    panes = run("pane", "list").get("result", {}).get("panes", [])
-    return any(p.get("label") == "Rain" for p in panes)
+    boss_rain = {p for ids in load_boss()["rain"].values() for p in ids}
+    return any(p.get("label") == "Rain" and p["pane_id"] not in boss_rain for p in panes())
 
 
 def wait_idle(gen):
@@ -186,32 +198,182 @@ def wait_idle(gen):
     # Any status change since we started bumped the counter and cancels this run.
     if read_json("idle_gen.json", 0) != gen or not all_quiet(agents()) or rain_open():
         return
-    run("plugin", "pane", "open", "--plugin", os.environ["HERDR_PLUGIN_ID"],
+    run("plugin", "pane", "open", "--plugin", PLUGIN_ID,
         "--entrypoint", "rain", "--placement", "overlay", "--focus")
 
 
-HIDE_FILTER = {"op": "not", "filter": {"op": "eq", "field": {"token": "hidden"}, "value": "1"}}
+def load_boss():
+    return {"on": False, "spaces": [], "saved": {}, "rain": {}, **read_json("boss.json", {})}
 
 
-def toggle_hide(pane):
-    info = run("pane", "get", pane).get("result", {}).get("pane", {})
-    name = next((a.get("name") for a in agents() or [] if a["pane_id"] == pane), None)
-    if not name:
-        return run("notification", "show", "Matrix: focus an agent first")
-    if (info.get("tokens") or {}).get("hidden") == "1":
-        run("pane", "report-metadata", pane, "--source", "matrix", "--clear-token", "hidden")
-        run("notification", "show", f"Agent {name} is back in the Matrix")
-    else:
-        run("pane", "report-metadata", pane, "--source", "matrix", "--token", "hidden=1")
-        api("agent.view.set", {"source": "matrix", "filter": HIDE_FILTER})
-        run("notification", "show", f"Agent {name} is hidden")
+def apply_view(boss):
+    if boss["on"] and boss["spaces"]:
+        return api("agent.view.set", {"source": "matrix", "filter": {"op": "not", "filter": {
+            "op": "in", "field": "workspace_id", "values": boss["spaces"]}}})
+    return api("agent.view.clear", {"source": "matrix"})
 
 
-def show_all():
-    for a in agents() or []:
-        run("pane", "report-metadata", a["pane_id"], "--source", "matrix", "--clear-token", "hidden")
-    api("agent.view.clear", {"source": "matrix"})
-    run("notification", "show", "All agents are visible")
+def drop_hidden_agents():
+    # 0.2 hid agents with a pane token and a view filter. A reinstall runs no startup
+    # hook, so a live server keeps both, with no show-all left to undo them.
+    if read_json("migrated.json", 0) >= 1:
+        return
+    with locked("boss.lock"):
+        for p in panes():
+            if (p.get("tokens") or {}).get("hidden") == "1":
+                run("pane", "report-metadata", p["pane_id"], "--source", "matrix", "--clear-token", "hidden")
+        if "result" in apply_view(load_boss()):
+            write_json("migrated.json", 1)
+
+
+def workspaces():
+    return run("workspace", "list").get("result", {}).get("workspaces")
+
+
+def cover_name(i):
+    lap = i // len(COVERS)
+    return COVERS[i % len(COVERS)] + (f"-{lap + 1}" if lap else "")
+
+
+def disguise(boss):
+    live = workspaces()
+    if live is None:
+        return
+    by_id = {w["workspace_id"]: w for w in live}
+    boss["spaces"] = [s for s in boss["spaces"] if s in by_id]
+    boss["saved"] = {s: v for s, v in boss["saved"].items() if s in by_id}
+    boss["rain"] = {s: v for s, v in boss["rain"].items() if s in by_id}
+    for i, space in enumerate(boss["spaces"]):
+        cover = cover_name(i)
+        tokens = by_id[space].get("tokens") or {}
+        args = ["--token", f"workspace={cover}"]
+        # Plugins such as workspace-numbers publish the sidebar label as "numbered".
+        if "numbered" in tokens:
+            fake = f"{tokens.get('wsnum', '')} {cover}".strip()
+            if tokens["numbered"] != fake:
+                boss["saved"][space] = tokens["numbered"]
+            args += ["--token", f"numbered={fake}"]
+        run("workspace", "report-metadata", space, "--source", "matrix", *args)
+
+
+def reveal(boss, space):
+    args = ["--clear-token", "workspace"]
+    saved = boss["saved"].pop(space, None)
+    if saved:
+        args += ["--token", f"numbered={saved}"]
+    run("workspace", "report-metadata", space, "--source", "matrix", *args)
+
+
+def start_rain(boss, space):
+    live = panes()
+    if {p["pane_id"] for p in live} & set(boss["rain"].get(space, [])):
+        return
+    # Herdr opens plugin panes in another space only zoomed over an existing pane, one per tab.
+    tabs = {}
+    for p in live:
+        if p.get("workspace_id") == space and p.get("label") != "Rain":
+            tabs.setdefault(p["tab_id"], p["pane_id"])
+    ids = []
+    for target in tabs.values():
+        opened = run("plugin", "pane", "open", "--plugin", PLUGIN_ID, "--entrypoint", "rain",
+                     "--placement", "zoomed", "--target-pane", target,
+                     "--env", "MATRIX_BOSS=1", "--no-focus")
+        pane_id = opened.get("result", {}).get("plugin_pane", {}).get("pane", {}).get("pane_id")
+        if pane_id:
+            ids.append(pane_id)
+    boss["rain"][space] = ids
+
+
+def stop_rain(boss, space):
+    for pane_id in boss["rain"].pop(space, []):
+        run("plugin", "pane", "close", pane_id)
+
+
+def refocus(before, spaces):
+    # Herdr ignores --no-focus for zoomed panes, jumping to each rain's space and tab.
+    for w in before:
+        if w["workspace_id"] in spaces and not w.get("focused"):
+            run("tab", "focus", w["active_tab_id"])
+    focused = next((w for w in before if w.get("focused")), None)
+    if focused:
+        run("workspace", "focus", focused["workspace_id"])
+        run("tab", "focus", focused["active_tab_id"])
+
+
+def cover_all(boss):
+    before = workspaces() or []
+    disguise(boss)
+    # Save the real names now so a failure during the rain calls can't lose them.
+    write_json("boss.json", boss)
+    for space in boss["spaces"]:
+        start_rain(boss, space)
+    refocus(before, boss["spaces"])
+
+
+def mark_space():
+    before = workspaces() or []
+    space = next((w for w in before if w.get("focused")), None)
+    if not space:
+        return run("notification", "show", "Matrix: focus a space first")
+    sid = space["workspace_id"]
+    with locked("boss.lock"):
+        boss = load_boss()
+        try:
+            if sid in boss["spaces"]:
+                boss["spaces"].remove(sid)
+                if boss["on"]:
+                    reveal(boss, sid)
+                    stop_rain(boss, sid)
+                text = f"Space {space['label']} is unmarked"
+            else:
+                boss["spaces"].append(sid)
+                text = f"Space {space['label']} is marked for boss mode"
+            if boss["on"]:
+                disguise(boss)
+                write_json("boss.json", boss)
+                apply_view(boss)
+                if sid in boss["spaces"]:
+                    start_rain(boss, sid)
+                    refocus(before, [sid])
+        finally:
+            write_json("boss.json", boss)
+    run("notification", "show", text)
+
+
+def toggle_boss():
+    # No toast here: one announcing boss mode would give the game away.
+    with locked("boss.lock"):
+        boss = load_boss()
+        boss["on"] = not boss["on"]
+        try:
+            if boss["on"]:
+                cover_all(boss)
+            else:
+                for space in list(boss["spaces"]):
+                    reveal(boss, space)
+                    stop_rain(boss, space)
+            apply_view(boss)
+        finally:
+            write_json("boss.json", boss)
+
+
+def reapply_boss(rain):
+    if not load_boss()["on"]:
+        return
+    # Let other plugins rewrite their workspace tokens first, then cover them again.
+    time.sleep(1)
+    with locked("boss.lock"):
+        boss = load_boss()
+        if not boss["on"]:
+            return
+        try:
+            if rain:
+                cover_all(boss)
+            else:
+                disguise(boss)
+            apply_view(boss)
+        finally:
+            write_json("boss.json", boss)
 
 
 def toast(names):
@@ -243,15 +405,25 @@ def reap():
         toast(list(gone.values()))
 
 
+def on_startup():
+    # boss.json can outlive a server restart while the rain and covers don't.
+    reapply_boss(rain=True)
+
+
+COMMANDS = {
+    "mark-space": mark_space,
+    "boss-mode": toggle_boss,
+    "startup": on_startup,
+}
+
+
 def main():
-    if len(sys.argv) > 2 and sys.argv[1] == "wait-idle":
-        return wait_idle(int(sys.argv[2]))
-    if len(sys.argv) > 1 and sys.argv[1] == "toggle-hide":
-        pane = os.environ.get("HERDR_PANE_ID") or find_pane_id(
-            json.loads(os.environ.get("HERDR_PLUGIN_CONTEXT_JSON", "{}")))
-        return toggle_hide(pane) if pane else None
-    if len(sys.argv) > 1 and sys.argv[1] == "show-all":
-        return show_all()
+    drop_hidden_agents()
+    args = sys.argv[1:]
+    if len(args) > 1 and args[0] == "wait-idle":
+        return wait_idle(int(args[1]))
+    if args and args[0] in COMMANDS:
+        return COMMANDS[args[0]]()
     kind = os.environ.get("HERDR_PLUGIN_EVENT", "")
     pane = os.environ.get("HERDR_PANE_ID") or find_pane_id(event())
     if kind == "pane.agent_detected" and pane:
@@ -261,6 +433,9 @@ def main():
         on_status()
     elif kind in ("pane.closed", "pane.exited", "tab.closed", "workspace.closed"):
         reap()
+    if kind.startswith("workspace."):
+        reapply_boss(rain=False)
 
 
-main()
+if __name__ == "__main__":
+    main()

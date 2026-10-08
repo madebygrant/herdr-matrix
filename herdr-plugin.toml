@@ -5,6 +5,9 @@ min_herdr_version = "0.8.2"
 description = "Matrix theming for Herdr: Agent names, idle rain and exit messages"
 platforms = ["macos", "linux"]
 
+[[startup]]
+command = ["python3", "-I", "matrix.py", "startup"]
+
 [[events]]
 on = "pane.agent_detected"
 command = ["python3", "-I", "matrix.py"]
@@ -29,6 +32,22 @@ command = ["python3", "-I", "matrix.py"]
 on = "workspace.closed"
 command = ["python3", "-I", "matrix.py"]
 
+[[events]]
+on = "workspace.created"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "workspace.renamed"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "workspace.moved"
+command = ["python3", "-I", "matrix.py"]
+
+[[events]]
+on = "workspace.reordered"
+command = ["python3", "-I", "matrix.py"]
+
 [[panes]]
 id = "rain"
 title = "Rain"
@@ -36,15 +55,15 @@ placement = "overlay"
 command = ["python3", "-I", "rain.py"]
 
 [[actions]]
-id = "toggle-hide"
-title = "Matrix: hide or show this agent"
-description = "Toggle whether the focused agent appears in the agents list"
+id = "mark-space"
+title = "Matrix: mark or unmark this space for boss mode"
+description = "Toggle whether boss mode covers the focused space"
 contexts = ["global"]
-command = ["python3", "-I", "matrix.py", "toggle-hide"]
+command = ["python3", "-I", "matrix.py", "mark-space"]
 
 [[actions]]
-id = "show-all"
-title = "Matrix: show all agents"
-description = "Unhide every agent in the agents list"
+id = "boss-mode"
+title = "Matrix: toggle boss mode"
+description = "Hide agents in marked spaces and give the spaces cover names"
 contexts = ["global"]
-command = ["python3", "-I", "matrix.py", "show-all"]
+command = ["python3", "-I", "matrix.py", "boss-mode"]
