@@ -1,6 +1,6 @@
 id = "madebygrant.herdr-matrix"
 name = "Matrix"
-version = "0.2.0"
+version = "0.3.0"
 min_herdr_version = "0.8.2"
 description = "Matrix theming for Herdr: Agent names, idle rain and exit messages"
 platforms = ["macos", "linux"]
