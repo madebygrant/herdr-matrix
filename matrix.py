@@ -203,7 +203,7 @@ def wait_idle(gen):
 
 
 def load_boss():
-    return {"on": False, "spaces": [], "saved": {}, "rain": {}, **read_json("boss.json", {})}
+    return {"on": False, "spaces": [], "rain": {}, **read_json("boss.json", {})}
 
 
 def apply_view(boss):
@@ -235,33 +235,38 @@ def cover_name(i):
     return COVERS[i % len(COVERS)] + (f"-{lap + 1}" if lap else "")
 
 
-def disguise(boss):
+def kanji(n):
+    digits = "〇一二三四五六七八九"
+    if not 0 < n < 100:
+        return str(n)
+    tens, ones = divmod(n, 10)
+    return (digits[tens] if tens > 1 else "") + ("十" if tens else "") + (digits[ones] if ones else "")
+
+
+def label_spaces(boss):
     live = workspaces()
     if live is None:
         return
-    by_id = {w["workspace_id"]: w for w in live}
-    boss["spaces"] = [s for s in boss["spaces"] if s in by_id]
-    boss["saved"] = {s: v for s, v in boss["saved"].items() if s in by_id}
-    boss["rain"] = {s: v for s, v in boss["rain"].items() if s in by_id}
-    for i, space in enumerate(boss["spaces"]):
-        cover = cover_name(i)
-        tokens = by_id[space].get("tokens") or {}
-        args = ["--token", f"workspace={cover}"]
-        # Plugins such as workspace-numbers publish the sidebar label as "numbered".
-        if "numbered" in tokens:
-            fake = f"{tokens.get('wsnum', '')} {cover}".strip()
-            if tokens["numbered"] != fake:
-                boss["saved"][space] = tokens["numbered"]
-            args += ["--token", f"numbered={fake}"]
-        run("workspace", "report-metadata", space, "--source", "matrix", *args)
+    ids = {w["workspace_id"] for w in live}
+    boss["spaces"] = [s for s in boss["spaces"] if s in ids]
+    boss["rain"] = {s: v for s, v in boss["rain"].items() if s in ids}
+    covers = {s: cover_name(i) for i, s in enumerate(boss["spaces"])} if boss["on"] else {}
+    for w in live:
+        sid = w["workspace_id"]
+        num = f"[{w['number']}]"
+        # Herdr's sidebar has no position token, and joins separate tokens with " · ".
+        name = covers.get(sid, w["label"])
+        want = {"wsnum": num, "numbered": f"{num} {name}", "kanji": f"{kanji(w['number'])} {name}"}
+        if sid in covers:
+            want["workspace"] = covers[sid]
+        have = w.get("tokens") or {}
+        args = [x for k, v in want.items() if have.get(k) != v for x in ("--token", f"{k}={v}")]
+        if args:
+            run("workspace", "report-metadata", sid, "--source", "matrix", *args)
 
 
-def reveal(boss, space):
-    args = ["--clear-token", "workspace"]
-    saved = boss["saved"].pop(space, None)
-    if saved:
-        args += ["--token", f"numbered={saved}"]
-    run("workspace", "report-metadata", space, "--source", "matrix", *args)
+def reveal(space):
+    run("workspace", "report-metadata", space, "--source", "matrix", "--clear-token", "workspace")
 
 
 def start_rain(boss, space):
@@ -302,8 +307,7 @@ def refocus(before, spaces):
 
 def cover_all(boss):
     before = workspaces() or []
-    disguise(boss)
-    # Save the real names now so a failure during the rain calls can't lose them.
+    label_spaces(boss)
     write_json("boss.json", boss)
     for space in boss["spaces"]:
         start_rain(boss, space)
@@ -322,14 +326,14 @@ def mark_space():
             if sid in boss["spaces"]:
                 boss["spaces"].remove(sid)
                 if boss["on"]:
-                    reveal(boss, sid)
+                    reveal(sid)
                     stop_rain(boss, sid)
                 text = f"Space {space['label']} is unmarked"
             else:
                 boss["spaces"].append(sid)
                 text = f"Space {space['label']} is marked for boss mode"
             if boss["on"]:
-                disguise(boss)
+                label_spaces(boss)
                 write_json("boss.json", boss)
                 apply_view(boss)
                 if sid in boss["spaces"]:
@@ -350,28 +354,24 @@ def toggle_boss():
                 cover_all(boss)
             else:
                 for space in list(boss["spaces"]):
-                    reveal(boss, space)
+                    reveal(space)
                     stop_rain(boss, space)
+                label_spaces(boss)
             apply_view(boss)
         finally:
             write_json("boss.json", boss)
 
 
-def reapply_boss(rain):
-    if not load_boss()["on"]:
-        return
-    # Let other plugins rewrite their workspace tokens first, then cover them again.
-    time.sleep(1)
+def sync_spaces(rain):
     with locked("boss.lock"):
         boss = load_boss()
-        if not boss["on"]:
-            return
         try:
-            if rain:
+            if boss["on"] and rain:
                 cover_all(boss)
             else:
-                disguise(boss)
-            apply_view(boss)
+                label_spaces(boss)
+            if boss["on"]:
+                apply_view(boss)
         finally:
             write_json("boss.json", boss)
 
@@ -407,7 +407,7 @@ def reap():
 
 def on_startup():
     # boss.json can outlive a server restart while the rain and covers don't.
-    reapply_boss(rain=True)
+    sync_spaces(rain=True)
 
 
 COMMANDS = {
@@ -433,8 +433,8 @@ def main():
         on_status()
     elif kind in ("pane.closed", "pane.exited", "tab.closed", "workspace.closed"):
         reap()
-    if kind.startswith("workspace."):
-        reapply_boss(rain=False)
+    if kind.startswith("workspace.") or kind == "tab.renamed":
+        sync_spaces(rain=False)
 
 
 if __name__ == "__main__":

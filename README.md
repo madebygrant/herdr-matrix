@@ -2,7 +2,7 @@
 
 ![Herdr with the Matrix plugin: agents named brown, smith and jones with status text in the sidebar, and digital rain over the pane](assets/herdr-matrix.webp)
 
-A Herdr plugin that renames agents after the Agents in The Matrix, gives them Matrix status wording, and runs digital rain when everything is quiet.
+A Herdr plugin that renames agents after the Agents in The Matrix, gives them Matrix status wording, numbers the spaces in the sidebar, and runs digital rain when everything is quiet.
 
 ## What it does
 
@@ -11,6 +11,7 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 - Opens a rain overlay after every agent has been "standing by" for 10 minutes. Any key dismisses it, and any status change resets the countdown. It never opens a second overlay.
 - Shows a toast, "Agent smith has been deleted.", when an agent's pane goes away. If several close together, one toast lists them all. Toasts need `delivery = "herdr"` in the config below, or Herdr drops them.
 - Boss mode. `madebygrant.herdr-matrix.mark-space` marks or unmarks the focused space. `madebygrant.herdr-matrix.boss-mode` then hides every agent in the marked spaces and swaps each marked space's sidebar name for a cover name: space-alpha, space-beta and so on, in the order the spaces were marked. Each tab in a marked space is covered with digital rain that ignores keys. Run it again to bring everything back. Marks survive boss mode turning off, and a closed space drops its mark. Boss mode shows no toast, and it comes back on after a server restart if it was on before.
+- Numbers the spaces in the sidebar: the `numbered` token reads "[1] name", `kanji` reads "一 name" and `wsnum` reads "[1]". They follow moves, closes and renames. They also follow `cd`, but only when a plugin such as auto-title renames the tab, because Herdr emits no event when it relabels a space after a `cd`. Boss mode covers the name in `numbered` and `kanji` too. Swap `$numbered` for `$kanji` in the sidebar row below to show kanji numerals.
 - Prints "N agents in the Matrix" for the tab bar with `tab_bar.py`. Agents boss mode hides are left out of the count.
 
 ## Install
@@ -40,6 +41,9 @@ position = "top-right"
 
 [ui.sidebar.agents]
 rows = [["state_icon", { token = "agent", fg = "#86BC9E", bold = true, dim = false }, { token = "state_text", dim = true }], [{ token = "workspace", bold = false }, "tab"]]
+
+[ui.sidebar.spaces]
+rows = [["state_icon", "$numbered"], ["branch", "git_status"]]
 
 [[keys.command]]
 key = "prefix+b"
@@ -82,8 +86,8 @@ The first command opens the rain now. The second shows recent hook runs and thei
 - The kill message needs the plugin to have recorded the agent's name first, so agents that predate the plugin get none until a status event fires.
 - Herdr shows one toast at a time. A second one returns `busy`, so the plugin retries the kill message up to four times, three seconds apart, and may still drop it.
 - Herdr decides how often the tab bar command runs.
-- Herdr can't remove a space's sidebar row, so boss mode disguises it. The cover replaces the `workspace` and `numbered` tokens. A row built from other tokens, and a window title using `{workspace}`, still show the real name.
-- When a space is created, renamed or moved during boss mode, the plugin waits a second for other plugins to rewrite their tokens, then covers the space again. The real name can show for that second.
+- Herdr can't remove a space's sidebar row, so boss mode disguises it. The cover replaces the `workspace`, `numbered` and `kanji` tokens. A row built from other tokens, and a window title using `{workspace}`, still show the real name.
+- Kanji numerals go up to 九十九 (99). Spaces from 100 on show Arabic digits in the `kanji` token.
 - Herdr can only put a pane in another space by zooming it over an existing pane, and it focuses that space even when asked not to. Turning boss mode on therefore jumps through each marked space and back. A tab opened in a marked space while boss mode is on gets no rain, and unzooming a tab shows what's under the rain.
 
 ## Upgrading from 0.2

@@ -48,6 +48,12 @@ command = ["python3", "-I", "matrix.py"]
 on = "workspace.reordered"
 command = ["python3", "-I", "matrix.py"]
 
+# Herdr relabels a workspace after a cd without emitting any event; auto-title's
+# tab rename is the only signal that follows it.
+[[events]]
+on = "tab.renamed"
+command = ["python3", "-I", "matrix.py"]
+
 [[panes]]
 id = "rain"
 title = "Rain"
