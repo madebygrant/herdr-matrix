@@ -362,7 +362,7 @@ def toggle_boss():
             write_json("boss.json", boss)
 
 
-def open_in_zed():
+def open_in_editor(command, name):
     space = next((w for w in workspaces() or [] if w.get("focused")), None)
     panes = [p for p in run("pane", "list").get("result", {}).get("panes", [])
              if space and p.get("workspace_id") == space["workspace_id"]]
@@ -371,11 +371,20 @@ def open_in_zed():
     cwd = next((p.get("foreground_cwd") or p.get("cwd") for p in panes if p.get("foreground_cwd") or p.get("cwd")), None)
     if not cwd:
         return run("notification", "show", "Matrix: no directory found for this space")
-    # -e reuses an existing Zed window; without it the CLI opens a new one.
     try:
-        subprocess.run(["zed", "-e", cwd], timeout=10, check=True)
+        subprocess.run([*command, cwd], timeout=10, check=True)
     except (OSError, subprocess.SubprocessError):
-        run("notification", "show", "Matrix: could not open Zed")
+        run("notification", "show", f"Matrix: could not open {name}")
+
+
+def open_in_zed():
+    # -e reuses an existing Zed window; without it the CLI opens a new one.
+    open_in_editor(["zed", "-e"], "Zed")
+
+
+def open_in_vscode():
+    # -r reuses the last active VS Code window.
+    open_in_editor(["code", "-r"], "VS Code")
 
 
 def sync_spaces(rain):
@@ -430,6 +439,7 @@ COMMANDS = {
     "mark-space": mark_space,
     "boss-mode": toggle_boss,
     "open-in-zed": open_in_zed,
+    "open-in-vscode": open_in_vscode,
     "startup": on_startup,
 }
 

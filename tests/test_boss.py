@@ -187,6 +187,12 @@ class BossModeTest(unittest.TestCase):
             matrix.open_in_zed()
         sp.assert_called_once_with(["zed", "-e", "/proj"], timeout=10, check=True)
 
+    def test_open_in_vscode_reuses_window(self):
+        self.herdr.panes[0]["foreground_cwd"] = "/proj"
+        with mock.patch.object(matrix.subprocess, "run") as sp:
+            matrix.open_in_vscode()
+        sp.assert_called_once_with(["code", "-r", "/proj"], timeout=10, check=True)
+
 
 if __name__ == "__main__":
     unittest.main()

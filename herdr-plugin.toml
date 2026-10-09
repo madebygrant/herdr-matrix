@@ -80,3 +80,10 @@ title = "Matrix: open this space in Zed"
 description = "Open the focused space's directory in the running Zed app"
 contexts = ["global"]
 command = ["python3", "-I", "matrix.py", "open-in-zed"]
+
+[[actions]]
+id = "open-in-vscode"
+title = "Matrix: open this space in VS Code"
+description = "Open the focused space's directory in the last active VS Code window"
+contexts = ["global"]
+command = ["python3", "-I", "matrix.py", "open-in-vscode"]
