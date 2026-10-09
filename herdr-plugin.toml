@@ -73,3 +73,10 @@ title = "Matrix: toggle boss mode"
 description = "Hide agents in marked spaces and give the spaces cover names"
 contexts = ["global"]
 command = ["python3", "-I", "matrix.py", "boss-mode"]
+
+[[actions]]
+id = "open-in-zed"
+title = "Matrix: open this space in Zed"
+description = "Open the focused space's directory in the running Zed app"
+contexts = ["global"]
+command = ["python3", "-I", "matrix.py", "open-in-zed"]

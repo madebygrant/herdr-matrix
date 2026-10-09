@@ -179,6 +179,14 @@ class BossModeTest(unittest.TestCase):
         self.assertEqual(matrix.cover_name(23), "space-omega")
         self.assertEqual(matrix.cover_name(24), "space-alpha-2")
 
+    def test_open_in_zed_uses_active_tab_cwd(self):
+        self.herdr.panes[0]["foreground_cwd"] = "/other"
+        self.herdr.panes[1]["foreground_cwd"] = "/proj"
+        self.herdr.spaces["w1"]["active_tab_id"] = "w1:t2"
+        with mock.patch.object(matrix.subprocess, "run") as sp:
+            matrix.open_in_zed()
+        sp.assert_called_once_with(["zed", "-e", "/proj"], timeout=10, check=True)
+
 
 if __name__ == "__main__":
     unittest.main()

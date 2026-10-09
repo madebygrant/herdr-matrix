@@ -11,6 +11,7 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 - Opens a rain overlay after every agent has been "standing by" for 10 minutes. Any key dismisses it, and any status change resets the countdown. It never opens a second overlay.
 - Shows a toast, "Agent smith has been deleted.", when an agent's pane goes away. If several close together, one toast lists them all. Toasts need `delivery = "herdr"` in the config below, or Herdr drops them.
 - Boss mode. `madebygrant.herdr-matrix.mark-space` marks or unmarks the focused space. `madebygrant.herdr-matrix.boss-mode` then hides every agent in the marked spaces and swaps each marked space's sidebar name for a cover name: space-alpha, space-beta and so on, in the order the spaces were marked. Each tab in a marked space is covered with digital rain that ignores keys. Run it again to bring everything back. Marks survive boss mode turning off, and a closed space drops its mark. Boss mode shows no toast, and it comes back on after a server restart if it was on before.
+- Opens the focused space in Zed. `madebygrant.herdr-matrix.open-in-zed` runs `zed -e <dir>` for the focused space, using the working directory of a pane in its active tab. `-e` opens it in an existing Zed window rather than a new one. It needs `zed` on your `PATH`.
 - Numbers the spaces in the sidebar: the `numbered` token reads "[1] name", `kanji` reads "一 name" and `wsnum` reads "[1]". They follow moves, closes and renames. They also follow `cd`, but only when a plugin such as auto-title renames the tab, because Herdr emits no event when it relabels a space after a `cd`. Boss mode covers the name in `numbered` and `kanji` too. Swap `$numbered` for `$kanji` in the sidebar row below to show kanji numerals.
 - Prints "N agents in the Matrix" for the tab bar with `tab_bar.py`. Agents boss mode hides are left out of the count.
 
@@ -56,6 +57,12 @@ key = "prefix+shift+b"
 type = "plugin_action"
 command = "madebygrant.herdr-matrix.boss-mode"
 description = "matrix: toggle boss mode"
+
+[[keys.command]]
+key = "prefix+z"
+type = "plugin_action"
+command = "madebygrant.herdr-matrix.open-in-zed"
+description = "matrix: open space in Zed"
 ```
 
 Set the `tab_bar.py` path to where the plugin lives, then run `herdr server reload-config`.

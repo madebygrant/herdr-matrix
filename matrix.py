@@ -362,6 +362,22 @@ def toggle_boss():
             write_json("boss.json", boss)
 
 
+def open_in_zed():
+    space = next((w for w in workspaces() or [] if w.get("focused")), None)
+    panes = [p for p in run("pane", "list").get("result", {}).get("panes", [])
+             if space and p.get("workspace_id") == space["workspace_id"]]
+    # Prefer the active tab's pane, since a space can hold tabs in different directories.
+    panes.sort(key=lambda p: p.get("tab_id") != space["active_tab_id"] if space else 0)
+    cwd = next((p.get("foreground_cwd") or p.get("cwd") for p in panes if p.get("foreground_cwd") or p.get("cwd")), None)
+    if not cwd:
+        return run("notification", "show", "Matrix: no directory found for this space")
+    # -e reuses an existing Zed window; without it the CLI opens a new one.
+    try:
+        subprocess.run(["zed", "-e", cwd], timeout=10, check=True)
+    except (OSError, subprocess.SubprocessError):
+        run("notification", "show", "Matrix: could not open Zed")
+
+
 def sync_spaces(rain):
     with locked("boss.lock"):
         boss = load_boss()
@@ -413,6 +429,7 @@ def on_startup():
 COMMANDS = {
     "mark-space": mark_space,
     "boss-mode": toggle_boss,
+    "open-in-zed": open_in_zed,
     "startup": on_startup,
 }
 
