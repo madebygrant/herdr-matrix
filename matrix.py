@@ -2,6 +2,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -30,6 +31,8 @@ COVERS = [f"space-{g}" for g in (
 herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "madebygrant.herdr-matrix")
 state_dir = os.environ.get("HERDR_PLUGIN_STATE_DIR", ".")
+config_dir = os.environ.get("HERDR_PLUGIN_CONFIG_DIR", ".")
+DIFF_TOKENS = ("diffstat", "diffadd", "diffdel")
 os.makedirs(state_dir, exist_ok=True)
 
 
@@ -243,6 +246,36 @@ def kanji(n):
     return (digits[tens] if tens > 1 else "") + ("十" if tens else "") + (digits[ones] if ones else "")
 
 
+def space_cwd(space, all_panes):
+    mine = [p for p in all_panes if p.get("workspace_id") == space["workspace_id"]]
+    # Prefer the active tab's pane, since a space can hold tabs in different directories.
+    mine.sort(key=lambda p: p.get("tab_id") != space["active_tab_id"])
+    return next((p.get("foreground_cwd") or p.get("cwd") for p in mine if p.get("foreground_cwd") or p.get("cwd")), None)
+
+
+def diffstat_enabled():
+    try:
+        import tomllib
+        with open(os.path.join(config_dir, "config.toml"), "rb") as f:
+            return tomllib.load(f).get("diffstat", True) is not False
+    except (OSError, ImportError, ValueError):
+        return True
+
+
+def diffstat(cwd):
+    # Untracked files are skipped on purpose; the count is tracked changes against HEAD.
+    try:
+        out = subprocess.run(["git", "-C", cwd, "diff", "--shortstat", "HEAD"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    added = re.search(r"(\d+) insertion", out)
+    removed = re.search(r"(\d+) deletion", out)
+    if not (added or removed):
+        return None
+    return f"+{added.group(1) if added else 0}", f"-{removed.group(1) if removed else 0}"
+
+
 def label_spaces(boss):
     live = workspaces()
     if live is None:
@@ -251,6 +284,8 @@ def label_spaces(boss):
     boss["spaces"] = [s for s in boss["spaces"] if s in ids]
     boss["rain"] = {s: v for s, v in boss["rain"].items() if s in ids}
     covers = {s: cover_name(i) for i, s in enumerate(boss["spaces"])} if boss["on"] else {}
+    live_panes = panes()
+    show_diff = diffstat_enabled()
     for w in live:
         sid = w["workspace_id"]
         num = f"[{w['number']}]"
@@ -260,7 +295,13 @@ def label_spaces(boss):
         if sid in covers:
             want["workspace"] = covers[sid]
         have = w.get("tokens") or {}
+        cwd = space_cwd(w, live_panes)
+        stat = diffstat(cwd) if show_diff and cwd and sid not in covers else None
+        if stat:
+            want.update(diffadd=stat[0], diffdel=stat[1], diffstat=" ".join(stat))
         args = [x for k, v in want.items() if have.get(k) != v for x in ("--token", f"{k}={v}")]
+        if not stat:
+            args += [x for k in DIFF_TOKENS if k in have for x in ("--clear-token", k)]
         if args:
             run("workspace", "report-metadata", sid, "--source", "matrix", *args)
 
@@ -364,11 +405,7 @@ def toggle_boss():
 
 def open_in_editor(command, name):
     space = next((w for w in workspaces() or [] if w.get("focused")), None)
-    panes = [p for p in run("pane", "list").get("result", {}).get("panes", [])
-             if space and p.get("workspace_id") == space["workspace_id"]]
-    # Prefer the active tab's pane, since a space can hold tabs in different directories.
-    panes.sort(key=lambda p: p.get("tab_id") != space["active_tab_id"] if space else 0)
-    cwd = next((p.get("foreground_cwd") or p.get("cwd") for p in panes if p.get("foreground_cwd") or p.get("cwd")), None)
+    cwd = space and space_cwd(space, panes())
     if not cwd:
         return run("notification", "show", "Matrix: no directory found for this space")
     try:

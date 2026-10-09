@@ -116,7 +116,7 @@ class BossModeTest(unittest.TestCase):
 
         writes = len(self.herdr.calls)
         matrix.sync_spaces(rain=False)
-        self.assertEqual(len(self.herdr.calls), writes + 1, "only the list call when nothing changed")
+        self.assertEqual(len(self.herdr.calls), writes + 2, "only the list calls when nothing changed")
 
     def test_cover_survives_relabel(self):
         matrix.toggle_boss()
@@ -192,6 +192,37 @@ class BossModeTest(unittest.TestCase):
         with mock.patch.object(matrix.subprocess, "run") as sp:
             matrix.open_in_vscode()
         sp.assert_called_once_with(["code", "-r", "/proj"], timeout=10, check=True)
+
+    def test_diffstat_formats_shortstat(self):
+        out = " 3 files changed, 93 insertions(+), 34 deletions(-)\n"
+        with mock.patch.object(matrix.subprocess, "run", return_value=mock.Mock(stdout=out)):
+            self.assertEqual(matrix.diffstat("/p"), ("+93", "-34"))
+        out = " 1 file changed, 2 insertions(+)\n"
+        with mock.patch.object(matrix.subprocess, "run", return_value=mock.Mock(stdout=out)):
+            self.assertEqual(matrix.diffstat("/p"), ("+2", "-0"))
+        with mock.patch.object(matrix.subprocess, "run", return_value=mock.Mock(stdout="")):
+            self.assertIsNone(matrix.diffstat("/p"))
+
+    def test_label_spaces_sets_and_clears_diffstat(self):
+        self.herdr.panes[0]["cwd"] = "/p"
+        boss = {"on": False, "spaces": [], "rain": {}}
+        with mock.patch.object(matrix, "diffstat", return_value=("+1", "-2")):
+            matrix.label_spaces(boss)
+        tokens = self.herdr.spaces["w1"]["tokens"]
+        self.assertEqual((tokens["diffstat"], tokens["diffadd"], tokens["diffdel"]), ("+1 -2", "+1", "-2"))
+        with mock.patch.object(matrix, "diffstat", return_value=None):
+            matrix.label_spaces(boss)
+        self.assertFalse({"diffstat", "diffadd", "diffdel"} & set(tokens))
+
+    def test_diffstat_off_in_plugin_config(self):
+        self.herdr.panes[0]["cwd"] = "/p"
+        cfg = tempfile.mkdtemp()
+        with open(os.path.join(cfg, "config.toml"), "w") as f:
+            f.write("diffstat = false\n")
+        boss = {"on": False, "spaces": [], "rain": {}}
+        with mock.patch.object(matrix, "config_dir", cfg), mock.patch.object(matrix, "diffstat") as d:
+            matrix.label_spaces(boss)
+        d.assert_not_called()
 
 
 if __name__ == "__main__":
