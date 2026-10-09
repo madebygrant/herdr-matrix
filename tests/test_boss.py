@@ -116,7 +116,7 @@ class BossModeTest(unittest.TestCase):
 
         writes = len(self.herdr.calls)
         matrix.sync_spaces(rain=False)
-        self.assertEqual(len(self.herdr.calls), writes + 2, "only the list calls when nothing changed")
+        self.assertEqual(len(self.herdr.calls), writes + 3, "only the list calls when nothing changed")
 
     def test_cover_survives_relabel(self):
         matrix.toggle_boss()
@@ -206,12 +206,12 @@ class BossModeTest(unittest.TestCase):
     def test_label_spaces_sets_and_clears_diffstat(self):
         self.herdr.panes[0]["cwd"] = "/p"
         boss = {"on": False, "spaces": [], "rain": {}}
-        with mock.patch.object(matrix, "diffstat", return_value=("+1", "-2")):
-            matrix.label_spaces(boss)
+        matrix.label_spaces(boss, {"w1": ("+1", "-2")})
         tokens = self.herdr.spaces["w1"]["tokens"]
         self.assertEqual((tokens["diffstat"], tokens["diffadd"], tokens["diffdel"]), ("+1 -2", "+1", "-2"))
-        with mock.patch.object(matrix, "diffstat", return_value=None):
-            matrix.label_spaces(boss)
+        matrix.label_spaces(boss)
+        self.assertEqual(tokens["diffadd"], "+1", "unknown diffs leave tokens alone")
+        matrix.label_spaces(boss, {"w1": None})
         self.assertFalse({"diffstat", "diffadd", "diffdel"} & set(tokens))
 
     def test_diffstat_off_in_plugin_config(self):
@@ -221,8 +221,14 @@ class BossModeTest(unittest.TestCase):
             f.write("diffstat = false\n")
         boss = {"on": False, "spaces": [], "rain": {}}
         with mock.patch.object(matrix, "config_dir", cfg), mock.patch.object(matrix, "diffstat") as d:
-            matrix.label_spaces(boss)
+            self.assertEqual(matrix.collect_diffs(), {})
         d.assert_not_called()
+
+    def test_collect_diffs_maps_space_to_stat(self):
+        self.herdr.panes[0]["cwd"] = "/p"
+        with mock.patch.object(matrix, "diffstat", return_value=("+1", "-2")) as d:
+            self.assertEqual(matrix.collect_diffs(), {"w1": ("+1", "-2"), "w2": None})
+        d.assert_called_once_with("/p")
 
 
 if __name__ == "__main__":

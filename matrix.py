@@ -1,3 +1,4 @@
+import concurrent.futures
 import contextlib
 import fcntl
 import json
@@ -31,7 +32,7 @@ COVERS = [f"space-{g}" for g in (
 herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "madebygrant.herdr-matrix")
 state_dir = os.environ.get("HERDR_PLUGIN_STATE_DIR", ".")
-config_dir = os.environ.get("HERDR_PLUGIN_CONFIG_DIR", ".")
+config_dir = os.environ.get("HERDR_PLUGIN_CONFIG_DIR")
 DIFF_TOKENS = ("diffstat", "diffadd", "diffdel")
 os.makedirs(state_dir, exist_ok=True)
 
@@ -254,6 +255,8 @@ def space_cwd(space, all_panes):
 
 
 def diffstat_enabled():
+    if not config_dir:
+        return True
     try:
         import tomllib
         with open(os.path.join(config_dir, "config.toml"), "rb") as f:
@@ -265,8 +268,10 @@ def diffstat_enabled():
 def diffstat(cwd):
     # Untracked files are skipped on purpose; the count is tracked changes against HEAD.
     try:
+        # Optional locks off, so a background diff never contends with the user's own git commands.
         out = subprocess.run(["git", "-C", cwd, "diff", "--shortstat", "HEAD"],
-                             capture_output=True, text=True, timeout=5).stdout
+                             capture_output=True, text=True, timeout=5,
+                             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"}).stdout
     except (OSError, subprocess.SubprocessError):
         return None
     added = re.search(r"(\d+) insertion", out)
@@ -276,7 +281,22 @@ def diffstat(cwd):
     return f"+{added.group(1) if added else 0}", f"-{removed.group(1) if removed else 0}"
 
 
-def label_spaces(boss):
+def collect_diffs():
+    # Runs before boss.lock is taken so slow git calls can't stall a keypress.
+    # None means herdr's lists are unknown, so existing tokens are left alone.
+    live = workspaces()
+    all_panes = run("pane", "list").get("result", {}).get("panes")
+    if live is None or all_panes is None:
+        return None
+    if not diffstat_enabled():
+        return {}
+    cwds = {w["workspace_id"]: space_cwd(w, all_panes) for w in live}
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        stats = pool.map(lambda c: diffstat(c) if c else None, cwds.values())
+        return dict(zip(cwds, stats))
+
+
+def label_spaces(boss, diffs=None):
     live = workspaces()
     if live is None:
         return
@@ -284,8 +304,6 @@ def label_spaces(boss):
     boss["spaces"] = [s for s in boss["spaces"] if s in ids]
     boss["rain"] = {s: v for s, v in boss["rain"].items() if s in ids}
     covers = {s: cover_name(i) for i, s in enumerate(boss["spaces"])} if boss["on"] else {}
-    live_panes = panes()
-    show_diff = diffstat_enabled()
     for w in live:
         sid = w["workspace_id"]
         num = f"[{w['number']}]"
@@ -295,12 +313,11 @@ def label_spaces(boss):
         if sid in covers:
             want["workspace"] = covers[sid]
         have = w.get("tokens") or {}
-        cwd = space_cwd(w, live_panes)
-        stat = diffstat(cwd) if show_diff and cwd and sid not in covers else None
+        stat = None if sid in covers or diffs is None else diffs.get(sid)
         if stat:
             want.update(diffadd=stat[0], diffdel=stat[1], diffstat=" ".join(stat))
         args = [x for k, v in want.items() if have.get(k) != v for x in ("--token", f"{k}={v}")]
-        if not stat:
+        if not stat and diffs is not None:
             args += [x for k in DIFF_TOKENS if k in have for x in ("--clear-token", k)]
         if args:
             run("workspace", "report-metadata", sid, "--source", "matrix", *args)
@@ -425,13 +442,14 @@ def open_in_vscode():
 
 
 def sync_spaces(rain):
+    diffs = collect_diffs()
     with locked("boss.lock"):
         boss = load_boss()
         try:
             if boss["on"] and rain:
                 cover_all(boss)
             else:
-                label_spaces(boss)
+                label_spaces(boss, diffs)
             if boss["on"]:
                 apply_view(boss)
         finally:
@@ -495,6 +513,7 @@ def main():
     elif kind == "pane.agent_status_changed":
         reap()
         on_status()
+        sync_spaces(rain=False)
     elif kind in ("pane.closed", "pane.exited", "tab.closed", "workspace.closed"):
         reap()
     if kind.startswith("workspace.") or kind == "tab.renamed":
