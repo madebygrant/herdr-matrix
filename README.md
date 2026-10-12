@@ -1,6 +1,6 @@
 # herdr-matrix
 
-![Herdr with the Matrix plugin: agents named brown, smith and jones with status text in the sidebar, and digital rain over the pane](assets/herdr-matrix.webp)
+![Herdr with the Matrix plugin: four numbered spaces with git diff counts, agents smith, brown, jones and johnson with Matrix status text, and digital rain falling in a split pane](assets/herdr-matrix.gif)
 
 A Herdr plugin that renames agents after the Agents in The Matrix, gives them Matrix status wording, numbers the spaces in the sidebar, and runs digital rain when everything is quiet.
 
@@ -112,7 +112,7 @@ herdr plugin pane open --plugin madebygrant.herdr-matrix --entrypoint rain --pla
 herdr plugin log list --plugin madebygrant.herdr-matrix
 ```
 
-The first command opens the rain now. The second shows recent hook runs and their errors. State (remembered names, idle counter, waiter pid) is in `~/.local/state/herdr/plugins/madebygrant.herdr-matrix/`.
+The first command opens the rain now. The second shows recent hook runs and their errors. State (remembered names, idle counter, waiter pid) is in `~/.local/state/herdr/plugins/madebygrant.herdr-matrix/`. A named session keeps its own state, including boss marks and the chosen station, in `sessions/<name>/` under that directory.
 
 ## Limits
 
@@ -128,7 +128,7 @@ The first command opens the rain now. The second shows recent hook runs and thei
 - Herdr shows one toast at a time. A second one returns `busy`, so the plugin retries the kill message up to four times, three seconds apart, and may still drop it.
 - Herdr decides how often the tab bar command runs.
 - Herdr can't remove a space's sidebar row, so boss mode disguises it. The cover replaces the `workspace`, `numbered` and `kanji` tokens. A row built from other tokens, and a window title using `{workspace}`, still show the real name.
-- Herdr can't list attached clients, so the music watcher asks it to clear the client window title and reads the reply. That resets any title another plugin set with `client.window_title.set` back to `ui.window_title` every 5 seconds while music is on. With several clients, only the foreground one counts. Each named session runs its own watcher, but the chosen station is shared.
+- Herdr can't list attached clients, so the music watcher asks it to clear the client window title and reads the reply. That resets any title another plugin set with `client.window_title.set` back to `ui.window_title` every 5 seconds while music is on. With several clients, only the foreground one counts.
 - Kanji numerals go up to 九十九 (99). Spaces from 100 on show Arabic digits in the `kanji` token.
 - Herdr can only put a pane in another space by zooming it over an existing pane, and it focuses that space even when asked not to. Turning boss mode on therefore jumps through each marked space and back. A tab opened in a marked space while boss mode is on gets no rain, and unzooming a tab shows what's under the rain.
 

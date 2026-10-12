@@ -1,7 +1,6 @@
 import concurrent.futures
 import contextlib
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -42,7 +41,19 @@ MUSIC_POLL_SECONDS = 5
 
 herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "madebygrant.herdr-matrix")
-state_dir = os.environ.get("HERDR_PLUGIN_STATE_DIR", ".")
+
+
+def session_state_dir(base, sock):
+    # Named sessions listen on .../sessions/<name>/herdr.sock but share the plugin state dir,
+    # so each gets its own subdir. The default session keeps the base dir.
+    parent = os.path.dirname(sock)
+    if os.path.basename(os.path.dirname(parent)) == "sessions":
+        return os.path.join(base, "sessions", os.path.basename(parent))
+    return base
+
+
+state_dir = session_state_dir(os.environ.get("HERDR_PLUGIN_STATE_DIR", "."),
+                              os.environ.get("HERDR_SOCKET_PATH", ""))
 config_dir = os.environ.get("HERDR_PLUGIN_CONFIG_DIR")
 DIFF_TOKENS = ("diffstat", "diffadd", "diffdel")
 os.makedirs(state_dir, exist_ok=True)
@@ -548,15 +559,9 @@ def music_watch():
         player.terminate()
 
 
-def music_file():
-    # Every named session shares the state dir but runs its own watcher.
-    sock = os.environ.get("HERDR_SOCKET_PATH", "")
-    return f"music-{hashlib.sha1(sock.encode()).hexdigest()[:8]}.json"
-
-
 def music_pid():
     # tab_bar.py reads this file too, for the station name.
-    state = read_json(music_file(), {})
+    state = read_json("music.json", {})
     return state.get("pid", 0) if isinstance(state, dict) else 0
 
 
@@ -576,7 +581,7 @@ def stop_music():
     if pid and music_group_alive(pid):
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGTERM)
-    write_json(music_file(), {})
+    write_json("music.json", {})
 
 
 def start_music():
@@ -592,7 +597,7 @@ def start_music():
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    write_json(music_file(), {"pid": proc.pid, "station": current_station()["name"]})
+    write_json("music.json", {"pid": proc.pid, "station": current_station()["name"]})
     return True
 
 

@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import subprocess
@@ -7,6 +6,10 @@ import sys
 # Runs from config.toml, not as a plugin hook, so Herdr doesn't pass the state dir.
 STATE_DIR = os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.expanduser(
     "~/.local/state/herdr/plugins/madebygrant.herdr-matrix")
+# Same per-session rule as matrix.py's session_state_dir().
+_session = os.path.dirname(os.environ.get("HERDR_SOCKET_PATH", ""))
+if os.path.basename(os.path.dirname(_session)) == "sessions":
+    STATE_DIR = os.path.join(STATE_DIR, "sessions", os.path.basename(_session))
 
 
 def boss_spaces():
@@ -30,11 +33,9 @@ def agent_count():
 
 
 def music():
-    # Same per-session file name as matrix.py's music_file(). Printing nothing hides the entry.
-    sock = os.environ.get("HERDR_SOCKET_PATH", "")
-    name = f"music-{hashlib.sha1(sock.encode()).hexdigest()[:8]}.json"
+    # Printing nothing hides the entry.
     try:
-        with open(os.path.join(STATE_DIR, name)) as f:
+        with open(os.path.join(STATE_DIR, "music.json")) as f:
             state = json.load(f)
     except (OSError, ValueError):
         return
