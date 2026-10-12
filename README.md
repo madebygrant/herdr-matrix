@@ -14,6 +14,19 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 - Opens the focused space in an editor, using the working directory of a pane in its active tab. `madebygrant.herdr-matrix.open-in-zed` runs `zed -e <dir>`, which reuses an existing Zed window. `madebygrant.herdr-matrix.open-in-vscode` runs `code -r <dir>`, which reuses the last active VS Code window. Each needs its CLI (`zed`, `code`) on your `PATH`.
 - Numbers the spaces in the sidebar: the `numbered` token reads "[1] name", `kanji` reads "一 name" and `wsnum` reads "[1]". They follow moves, closes and renames. They also follow `cd`, but only when a plugin such as auto-title renames the tab, because Herdr emits no event when it relabels a space after a `cd`. Boss mode covers the name in `numbered` and `kanji` too. Swap `$numbered` for `$kanji` in the sidebar row below to show kanji numerals.
 - Shows each space's git changes as tokens: `diffadd` ("+93"), `diffdel` ("-34") and `diffstat` ("+93 -34"). It sums tracked changes against `HEAD` in the working directory of a pane in the space's active tab. Untracked files aren't counted, and the token is empty on a clean tree or outside a repo. It refreshes on the events the plugin already handles (agent status changes, tab renames, workspace events), with the `git` calls run before the boss-mode lock is taken, not on file saves. Boss mode clears it for covered spaces. Herdr styles a whole token one color, so use `$diffadd` and `$diffdel` to color them separately, for example `["state_icon", "$numbered"], [{ token = "$diffadd", fg = "#86BC9E", dim = false }, { token = "$diffdel", fg = "#E06C75", dim = false }]`. Herdr joins the two with " · ". Set `diffstat = false` in the plugin's `config.toml` (`herdr plugin config-dir madebygrant.herdr-matrix`) to turn it off; it is on by default, and the change applies at the next refresh.
+- Plays a radio station while you're attached. `madebygrant.herdr-matrix.music` turns it on or off, and `madebygrant.herdr-matrix.music-station` opens a picker: arrows or `j`/`k` to move, enter or a number to play, esc to close. Picking a station starts the music if it was off, and the choice survives restarts. Edits to `stations` reach a playing stream at the next toggle or pick. Set `music = true` in the plugin's `config.toml` to start it with the server. A background watcher checks every 5 seconds whether a client is attached. It stops the music when you detach, starts it again when you reattach, and exits when the server stops. It needs `ffplay` from `brew install ffmpeg`.
+
+  The picker lists SomaFM's DEF CON Radio, Vaporwaves and Groove Salad until you add a `stations` list to the plugin's `config.toml`, which replaces them. Any stream `ffplay` can open works, and `name` falls back to the URL:
+
+  ```toml
+  [[stations]]
+  name = "DEF CON Radio"
+  url = "https://ice2.somafm.com/defcon-128-mp3"
+
+  [[stations]]
+  name = "Vaporwaves"
+  url = "https://ice2.somafm.com/vaporwaves-128-mp3"
+  ```
 - Prints "N agents in the Matrix" for the tab bar with `tab_bar.py`. Agents boss mode hides are left out of the count.
 
 ## Install
@@ -22,7 +35,7 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 herdr plugin install madebygrant/herdr-matrix
 ```
 
-It needs Herdr 0.8.2 or newer and `python3`.
+It needs Herdr 0.8.2 or newer and `python3`. Music also needs `ffplay` (`brew install ffmpeg`); everything else works without it.
 
 ## Config
 
@@ -70,6 +83,18 @@ key = "prefix+v"
 type = "plugin_action"
 command = "madebygrant.herdr-matrix.open-in-vscode"
 description = "matrix: open space in VS Code"
+
+[[keys.command]]
+key = "prefix+m"
+type = "plugin_action"
+command = "madebygrant.herdr-matrix.music"
+description = "matrix: toggle music"
+
+[[keys.command]]
+key = "prefix+shift+m"
+type = "plugin_action"
+command = "madebygrant.herdr-matrix.music-station"
+description = "matrix: choose radio station"
 ```
 
 Set the `tab_bar.py` path to where the plugin lives, then run `herdr server reload-config`.
@@ -101,6 +126,7 @@ The first command opens the rain now. The second shows recent hook runs and thei
 - Herdr shows one toast at a time. A second one returns `busy`, so the plugin retries the kill message up to four times, three seconds apart, and may still drop it.
 - Herdr decides how often the tab bar command runs.
 - Herdr can't remove a space's sidebar row, so boss mode disguises it. The cover replaces the `workspace`, `numbered` and `kanji` tokens. A row built from other tokens, and a window title using `{workspace}`, still show the real name.
+- Herdr can't list attached clients, so the music watcher asks it to clear the client window title and reads the reply. That resets any title another plugin set with `client.window_title.set` back to `ui.window_title` every 5 seconds while music is on. With several clients, only the foreground one counts. Each named session runs its own watcher, but the chosen station is shared.
 - Kanji numerals go up to 九十九 (99). Spaces from 100 on show Arabic digits in the `kanji` token.
 - Herdr can only put a pane in another space by zooming it over an existing pane, and it focuses that space even when asked not to. Turning boss mode on therefore jumps through each marked space and back. A tab opened in a marked space while boss mode is on gets no rain, and unzooming a tab shows what's under the rain.
 

@@ -60,6 +60,12 @@ title = "Rain"
 placement = "overlay"
 command = ["python3", "-I", "rain.py"]
 
+[[panes]]
+id = "stations"
+title = "Stations"
+placement = "overlay"
+command = ["python3", "-I", "matrix.py", "pick-station"]
+
 [[actions]]
 id = "mark-space"
 title = "Matrix: mark or unmark this space for boss mode"
@@ -87,3 +93,17 @@ title = "Matrix: open this space in VS Code"
 description = "Open the focused space's directory in the last active VS Code window"
 contexts = ["global"]
 command = ["python3", "-I", "matrix.py", "open-in-vscode"]
+
+[[actions]]
+id = "music"
+title = "Matrix: toggle music"
+description = "Play or stop the radio station while a Herdr client is attached"
+contexts = ["global"]
+command = ["python3", "-I", "matrix.py", "music"]
+
+[[actions]]
+id = "music-station"
+title = "Matrix: choose a radio station"
+description = "Pick a station from the list in config.toml and play it"
+contexts = ["global"]
+command = ["python3", "-I", "matrix.py", "music-station"]

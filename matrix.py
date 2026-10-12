@@ -1,14 +1,19 @@
 import concurrent.futures
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import re
+import select
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import termios
 import time
+import tty
 
 # Canon Agents first, then generic surnames in the same vein.
 CANON = ["smith", "brown", "jones", "johnson", "jackson", "thompson", "gray"]
@@ -28,6 +33,12 @@ IDLE_SECONDS = 600
 COVERS = [f"space-{g}" for g in (
     "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu",
     "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega")]
+STATIONS = [
+    {"name": "DEF CON Radio", "url": "https://ice2.somafm.com/defcon-128-mp3"},
+    {"name": "Vaporwaves", "url": "https://ice2.somafm.com/vaporwaves-128-mp3"},
+    {"name": "Groove Salad", "url": "https://ice2.somafm.com/groovesalad-128-mp3"},
+]
+MUSIC_POLL_SECONDS = 5
 
 herdr = os.environ.get("HERDR_BIN_PATH", "herdr")
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "madebygrant.herdr-matrix")
@@ -159,14 +170,18 @@ def all_quiet(current):
     return bool(current) and all(a["agent_status"] == "idle" for a in current)
 
 
-def cancel_waiter():
-    pid = read_json("waiter.json", 0)
+def ours(pid, mode):
+    # Confirm the pid is still running our mode before signalling; pids get reused.
     if not pid:
-        return
-    # Confirm the pid is still our waiter before signalling; pids get reused.
+        return False
     cmd = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
                          capture_output=True, text=True).stdout
-    if "wait-idle" in cmd:
+    return mode in cmd
+
+
+def cancel_waiter():
+    pid = read_json("waiter.json", 0)
+    if ours(pid, "wait-idle"):
         with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
     write_json("waiter.json", 0)
@@ -254,15 +269,19 @@ def space_cwd(space, all_panes):
     return next((p.get("foreground_cwd") or p.get("cwd") for p in mine if p.get("foreground_cwd") or p.get("cwd")), None)
 
 
-def diffstat_enabled():
+def plugin_config():
     if not config_dir:
-        return True
+        return {}
     try:
         import tomllib
         with open(os.path.join(config_dir, "config.toml"), "rb") as f:
-            return tomllib.load(f).get("diffstat", True) is not False
+            return tomllib.load(f)
     except (OSError, ImportError, ValueError):
-        return True
+        return {}
+
+
+def diffstat_enabled():
+    return plugin_config().get("diffstat", True) is not False
 
 
 def diffstat(cwd):
@@ -485,7 +504,184 @@ def reap():
         toast(list(gone.values()))
 
 
+def client_attached():
+    # Herdr has no client list, but this call reports no_foreground_client when none is attached.
+    # It also hands the window title back to ui.window_title. None means the server didn't answer.
+    reply = api("client.window_title.clear", {})
+    if "result" not in reply:
+        return None
+    return reply["result"].get("reason") != "no_foreground_client"
+
+
+def stations():
+    listed = plugin_config().get("stations")
+    valid = [{"name": st.get("name") or st["url"], "url": st["url"]} for st in listed or []
+             if isinstance(st, dict) and isinstance(st.get("url"), str)]
+    return valid or STATIONS
+
+
+def current_station():
+    # Saved by URL, so reordering or removing other stations keeps the choice.
+    listed = stations()
+    url = read_json("station.json", "")
+    return next((st for st in listed if st["url"] == url), listed[0])
+
+
+def music_watch():
+    cmd = ["ffplay", "-nodisp", "-loglevel", "quiet", current_station()["url"]]
+    player = None
+    misses = 0
+    # Three misses in a row means the server has stopped, not a slow reply.
+    while misses < 3:
+        attached = client_attached()
+        misses = misses + 1 if attached is None else 0
+        playing = player is not None and player.poll() is None
+        # None leaves the player alone, so one slow reply doesn't cut the stream.
+        if attached is True and not playing:
+            player = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif attached is False and playing:
+            player.terminate()
+            player.wait()
+        time.sleep(MUSIC_POLL_SECONDS)
+    if player:
+        player.terminate()
+
+
+def music_file():
+    # Every named session shares the state dir but runs its own watcher.
+    sock = os.environ.get("HERDR_SOCKET_PATH", "")
+    return f"music-{hashlib.sha1(sock.encode()).hexdigest()[:8]}.json"
+
+
+def music_on():
+    return ours(read_json(music_file(), 0), "music-watch")
+
+
+def music_group_alive(pgid):
+    # Checks the group rather than the watcher, since a crashed watcher can leave ffplay playing.
+    found = subprocess.run(["pgrep", "-g", str(pgid), "-f", "music-watch|ffplay"],
+                           capture_output=True)
+    return found.returncode == 0
+
+
+def stop_music():
+    pid = read_json(music_file(), 0)
+    if pid and music_group_alive(pid):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)
+    write_json(music_file(), 0)
+
+
+def start_music():
+    stop_music()
+    if not shutil.which("ffplay"):
+        run("notification", "show", "Matrix: music needs ffplay (brew install ffmpeg)")
+        return False
+    proc = subprocess.Popen(
+        [sys.executable, "-I", os.path.abspath(__file__), "music-watch"],
+        env=os.environ,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    write_json(music_file(), proc.pid)
+    return True
+
+
+def toggle_music():
+    with locked("music.lock"):
+        if music_on():
+            stop_music()
+            text = "Matrix: music off"
+        else:
+            text = f"Matrix: playing {current_station()['name']}" if start_music() else None
+    if text:
+        run("notification", "show", text)
+
+
+def open_station_picker():
+    run("plugin", "pane", "open", "--plugin", PLUGIN_ID, "--entrypoint", "stations",
+        "--placement", "overlay", "--focus")
+
+
+def draw_picker(out, listed, cursor, playing):
+    cols, rows = shutil.get_terminal_size()
+    lines = ["Choose a station", ""]
+    for i, st in enumerate(listed):
+        mark = ">" if i == cursor else " "
+        tag = "  (playing)" if st["url"] == playing else ""
+        lines.append(f"{mark} {i + 1}  {st['name']}{tag}")
+    lines += ["", "enter play · 1-9 jump · esc close"]
+    lines = [line[:cols] for line in lines]
+    width = max(len(line) for line in lines)
+    top = max(0, (rows - len(lines)) // 2)
+    left = max(0, (cols - width) // 2)
+    out.write("\x1b[2J")
+    for n, line in enumerate(lines):
+        color = "\x1b[38;2;220;255;230m" if n - 2 == cursor else "\x1b[38;2;0;255;65m"
+        out.write(f"\x1b[{top + n + 1};{left + 1}H{color}{line}")
+    out.write("\x1b[0m")
+    out.flush()
+
+
+def read_key(fd):
+    key = os.read(fd, 1)
+    # An arrow's bytes can arrive apart over SSH, so wait briefly before taking a lone esc.
+    while key[:1] == b"\x1b" and len(key) < 3 and select.select([fd], [], [], 0.05)[0]:
+        key += os.read(fd, 1)
+    return key
+
+
+def picker_key(key, cursor, count):
+    # Returns the new cursor and the picked index, -1 to close, or None to keep going.
+    if key in (b"\x1b[A", b"\x1bOA", b"k"):
+        return (cursor - 1) % count, None
+    if key in (b"\x1b[B", b"\x1bOB", b"j"):
+        return (cursor + 1) % count, None
+    if key in (b"\r", b"\n"):
+        return cursor, cursor
+    if key.isdigit() and 0 < int(key) <= count:
+        return cursor, int(key) - 1
+    if key in (b"\x1b", b"q"):
+        return cursor, -1
+    return cursor, None
+
+
+def pick_station():
+    listed = stations()
+    current = current_station()
+    playing = current["url"] if music_on() else None
+    cursor = listed.index(current)
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    out = sys.stdout
+    out.write("\x1b[?1049h\x1b[?25l")
+    picked = None
+    try:
+        tty.setcbreak(fd)
+        while picked is None:
+            draw_picker(out, listed, cursor, playing)
+            cursor, picked = picker_key(read_key(fd), cursor, len(listed))
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        out.write("\x1b[0m\x1b[?25h\x1b[?1049l")
+        out.flush()
+    if picked < 0:
+        return
+    chosen = listed[picked]
+    write_json("station.json", chosen["url"])
+    with locked("music.lock"):
+        started = start_music()
+    if started:
+        run("notification", "show", f"Matrix: playing {chosen['name']}")
+
+
 def on_startup():
+    if plugin_config().get("music") is True:
+        with locked("music.lock"):
+            start_music()
     # boss.json can outlive a server restart while the rain and covers don't.
     sync_spaces(rain=True)
 
@@ -495,6 +691,10 @@ COMMANDS = {
     "boss-mode": toggle_boss,
     "open-in-zed": open_in_zed,
     "open-in-vscode": open_in_vscode,
+    "music": toggle_music,
+    "music-watch": music_watch,
+    "music-station": open_station_picker,
+    "pick-station": pick_station,
     "startup": on_startup,
 }
 

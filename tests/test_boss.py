@@ -230,6 +230,91 @@ class BossModeTest(unittest.TestCase):
             self.assertEqual(matrix.collect_diffs(), {"w1": ("+1", "-2"), "w2": None})
         d.assert_called_once_with("/p")
 
+    def test_client_attached_reads_title_reply(self):
+        replies = {"cleared": True, "no_foreground_client": False}
+        for reason, want in replies.items():
+            reply = {"result": {"type": "client_window_title", "reason": reason}}
+            with mock.patch.object(matrix, "api", return_value=reply):
+                self.assertIs(matrix.client_attached(), want)
+        with mock.patch.object(matrix, "api", return_value={}):
+            self.assertIsNone(matrix.client_attached())
+
+    def test_stations_from_config_and_saved_choice(self):
+        cfg = tempfile.mkdtemp()
+        with open(os.path.join(cfg, "config.toml"), "w") as f:
+            f.write('[[stations]]\nname = "One"\nurl = "http://one"\n\n'
+                    '[[stations]]\nurl = "http://two"\n\n[[stations]]\nname = "no url"\n')
+        with mock.patch.object(matrix, "config_dir", cfg):
+            self.assertEqual(matrix.stations(), [{"name": "One", "url": "http://one"},
+                                                 {"name": "http://two", "url": "http://two"}])
+            matrix.write_json("station.json", "http://two")
+            self.assertEqual(matrix.current_station()["url"], "http://two")
+            matrix.write_json("station.json", "http://removed")
+            self.assertEqual(matrix.current_station()["url"], "http://one")
+        matrix.write_json("station.json", "")
+        self.assertEqual(matrix.stations(), matrix.STATIONS)
+
+    def test_music_watch_follows_client_and_exits_with_server(self):
+        player = mock.Mock()
+        player.poll.return_value = None
+        seen = iter([True, None, True, False, None, None, None])
+        with mock.patch.object(matrix, "client_attached", side_effect=lambda: next(seen)), \
+                mock.patch.object(matrix.subprocess, "Popen", return_value=player) as popen, \
+                mock.patch.object(matrix.time, "sleep"):
+            matrix.music_watch()
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0][-1], matrix.STATIONS[0]["url"])
+        self.assertEqual(player.terminate.call_count, 2, "stops on detach and on exit, not on the slow reply")
+
+    def test_picker_keys(self):
+        cases = [
+            (b"\x1b[A", 0, (2, None)), (b"k", 1, (0, None)),
+            (b"\x1b[B", 2, (0, None)), (b"\x1bOB", 0, (1, None)), (b"j", 0, (1, None)),
+            (b"\r", 1, (1, 1)), (b"3", 0, (0, 2)), (b"4", 0, (0, None)), (b"0", 0, (0, None)),
+            (b"\x1b", 1, (1, -1)), (b"q", 1, (1, -1)), (b"x", 1, (1, None)),
+        ]
+        for key, cursor, want in cases:
+            self.assertEqual(matrix.picker_key(key, cursor, 3), want, key)
+
+    def test_read_key_joins_split_arrow(self):
+        r, w = os.pipe()
+        os.write(w, b"\x1b[Aj")
+        self.assertEqual(matrix.read_key(r), b"\x1b[A")
+        self.assertEqual(matrix.read_key(r), b"j")
+        os.write(w, b"\x1b")
+        self.assertEqual(matrix.read_key(r), b"\x1b")
+        os.close(r)
+        os.close(w)
+
+    def test_toggle_music_starts_then_stops(self):
+        with mock.patch.object(matrix, "ours", return_value=False), \
+                mock.patch.object(matrix, "music_group_alive", return_value=False), \
+                mock.patch.object(matrix.shutil, "which", return_value="/bin/ffplay"), \
+                mock.patch.object(matrix.subprocess, "Popen", return_value=mock.Mock(pid=4242)) as popen:
+            matrix.toggle_music()
+        self.assertIn("music-watch", popen.call_args.args[0])
+        self.assertEqual(matrix.read_json(matrix.music_file(), 0), 4242)
+        with mock.patch.object(matrix, "ours", return_value=True), \
+                mock.patch.object(matrix, "music_group_alive", return_value=True), \
+                mock.patch.object(matrix.os, "killpg") as killpg:
+            matrix.toggle_music()
+        killpg.assert_called_once_with(4242, matrix.signal.SIGTERM)
+        self.assertEqual(matrix.read_json(matrix.music_file(), 0), 0)
+        self.assertIn(("notification", "show", "Matrix: music off"), self.herdr.calls)
+
+    def test_stop_music_spares_a_reused_pid(self):
+        matrix.write_json(matrix.music_file(), 4242)
+        with mock.patch.object(matrix, "music_group_alive", return_value=False), \
+                mock.patch.object(matrix.os, "killpg") as killpg:
+            matrix.stop_music()
+        killpg.assert_not_called()
+
+    def test_music_file_differs_per_session(self):
+        files = set()
+        for sock in ("/a/herdr.sock", "/b/herdr.sock"):
+            with mock.patch.dict(os.environ, {"HERDR_SOCKET_PATH": sock}):
+                files.add(matrix.music_file())
+        self.assertEqual(len(files), 2)
 
 if __name__ == "__main__":
     unittest.main()
