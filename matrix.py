@@ -554,8 +554,14 @@ def music_file():
     return f"music-{hashlib.sha1(sock.encode()).hexdigest()[:8]}.json"
 
 
+def music_pid():
+    # tab_bar.py reads this file too, for the station name.
+    state = read_json(music_file(), {})
+    return state.get("pid", 0) if isinstance(state, dict) else 0
+
+
 def music_on():
-    return ours(read_json(music_file(), 0), "music-watch")
+    return ours(music_pid(), "music-watch")
 
 
 def music_group_alive(pgid):
@@ -566,11 +572,11 @@ def music_group_alive(pgid):
 
 
 def stop_music():
-    pid = read_json(music_file(), 0)
+    pid = music_pid()
     if pid and music_group_alive(pid):
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGTERM)
-    write_json(music_file(), 0)
+    write_json(music_file(), {})
 
 
 def start_music():
@@ -586,7 +592,7 @@ def start_music():
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    write_json(music_file(), proc.pid)
+    write_json(music_file(), {"pid": proc.pid, "station": current_station()["name"]})
     return True
 
 

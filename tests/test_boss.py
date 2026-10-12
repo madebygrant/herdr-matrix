@@ -293,17 +293,18 @@ class BossModeTest(unittest.TestCase):
                 mock.patch.object(matrix.subprocess, "Popen", return_value=mock.Mock(pid=4242)) as popen:
             matrix.toggle_music()
         self.assertIn("music-watch", popen.call_args.args[0])
-        self.assertEqual(matrix.read_json(matrix.music_file(), 0), 4242)
+        self.assertEqual(matrix.read_json(matrix.music_file(), {}),
+                         {"pid": 4242, "station": matrix.STATIONS[0]["name"]})
         with mock.patch.object(matrix, "ours", return_value=True), \
                 mock.patch.object(matrix, "music_group_alive", return_value=True), \
                 mock.patch.object(matrix.os, "killpg") as killpg:
             matrix.toggle_music()
         killpg.assert_called_once_with(4242, matrix.signal.SIGTERM)
-        self.assertEqual(matrix.read_json(matrix.music_file(), 0), 0)
+        self.assertEqual(matrix.read_json(matrix.music_file(), 0), {})
         self.assertIn(("notification", "show", "Matrix: music off"), self.herdr.calls)
 
     def test_stop_music_spares_a_reused_pid(self):
-        matrix.write_json(matrix.music_file(), 4242)
+        matrix.write_json(matrix.music_file(), {"pid": 4242, "station": "x"})
         with mock.patch.object(matrix, "music_group_alive", return_value=False), \
                 mock.patch.object(matrix.os, "killpg") as killpg:
             matrix.stop_music()

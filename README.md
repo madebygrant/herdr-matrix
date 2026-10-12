@@ -14,7 +14,7 @@ A Herdr plugin that renames agents after the Agents in The Matrix, gives them Ma
 - Opens the focused space in an editor, using the working directory of a pane in its active tab. `madebygrant.herdr-matrix.open-in-zed` runs `zed -e <dir>`, which reuses an existing Zed window. `madebygrant.herdr-matrix.open-in-vscode` runs `code -r <dir>`, which reuses the last active VS Code window. Each needs its CLI (`zed`, `code`) on your `PATH`.
 - Numbers the spaces in the sidebar: the `numbered` token reads "[1] name", `kanji` reads "一 name" and `wsnum` reads "[1]". They follow moves, closes and renames. They also follow `cd`, but only when a plugin such as auto-title renames the tab, because Herdr emits no event when it relabels a space after a `cd`. Boss mode covers the name in `numbered` and `kanji` too. Swap `$numbered` for `$kanji` in the sidebar row below to show kanji numerals.
 - Shows each space's git changes as tokens: `diffadd` ("+93"), `diffdel` ("-34") and `diffstat` ("+93 -34"). It sums tracked changes against `HEAD` in the working directory of a pane in the space's active tab. Untracked files aren't counted, and the token is empty on a clean tree or outside a repo. It refreshes on the events the plugin already handles (agent status changes, tab renames, workspace events), with the `git` calls run before the boss-mode lock is taken, not on file saves. Boss mode clears it for covered spaces. Herdr styles a whole token one color, so use `$diffadd` and `$diffdel` to color them separately, for example `["state_icon", "$numbered"], [{ token = "$diffadd", fg = "#86BC9E", dim = false }, { token = "$diffdel", fg = "#E06C75", dim = false }]`. Herdr joins the two with " · ". Set `diffstat = false` in the plugin's `config.toml` (`herdr plugin config-dir madebygrant.herdr-matrix`) to turn it off; it is on by default, and the change applies at the next refresh.
-- Plays a radio station while you're attached. `madebygrant.herdr-matrix.music` turns it on or off, and `madebygrant.herdr-matrix.music-station` opens a picker: arrows or `j`/`k` to move, enter or a number to play, esc to close. Picking a station starts the music if it was off, and the choice survives restarts. Edits to `stations` reach a playing stream at the next toggle or pick. Set `music = true` in the plugin's `config.toml` to start it with the server. A background watcher checks every 5 seconds whether a client is attached. It stops the music when you detach, starts it again when you reattach, and exits when the server stops. It needs `ffplay` from `brew install ffmpeg`.
+- Plays a radio station while you're attached. `madebygrant.herdr-matrix.music` turns it on or off, and `madebygrant.herdr-matrix.music-station` opens a picker: arrows or `j`/`k` to move, enter or a number to play, esc to close. Picking a station starts the music if it was off, and the choice survives restarts. Edits to `stations` reach a playing stream at the next toggle or pick. `tab_bar.py music` prints "♪ Vaporwaves" in the tab bar while music is on and nothing when it's off, which hides the entry. Set `music = true` in the plugin's `config.toml` to start it with the server. A background watcher checks every 5 seconds whether a client is attached. It stops the music when you detach, starts it again when you reattach, and exits when the server stops. It needs `ffplay` from `brew install ffmpeg`.
 
   The picker lists SomaFM's DEF CON Radio, Vaporwaves and Groove Salad until you add a `stations` list to the plugin's `config.toml`, which replaces them. Any stream `ffplay` can open works, and `name` falls back to the URL:
 
@@ -45,8 +45,10 @@ The plugin covers names, labels, rain and the toast text. The window title, tab 
 [ui]
 window_title = "THE MATRIX · {workspace}"
 tab_bar_right = [
+  { type = "command", command = "python3 -I /path/to/herdr-matrix/tab_bar.py music", interval_seconds = 2 },
   { type = "command", command = "python3 -I /path/to/herdr-matrix/tab_bar.py" },
 ]
+tab_bar_right_separator = " · "
 
 [ui.toast]
 delivery = "herdr"
@@ -97,7 +99,7 @@ command = "madebygrant.herdr-matrix.music-station"
 description = "matrix: choose radio station"
 ```
 
-Set the `tab_bar.py` path to where the plugin lives, then run `herdr server reload-config`.
+Set both `tab_bar.py` paths to where the plugin lives, then run `herdr server reload-config`.
 
 ## Tuning
 
