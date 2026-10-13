@@ -1,6 +1,6 @@
 # herdr-matrix
 
-![Herdr with the Matrix plugin: four numbered spaces with git diff counts, agents smith, brown, jones and johnson with Matrix status text, and digital rain falling in a split pane](assets/herdr-matrix.gif)
+![Herdr with the Matrix plugin: four numbered spaces with git diff counts, agents smith, brown, jones and johnson with Matrix status text, and digital rain covering the pane area](assets/herdr-matrix.gif)
 
 A Herdr plugin that renames agents after the Agents in The Matrix, gives them Matrix status wording, numbers the spaces in the sidebar, and runs digital rain when everything is quiet.
 
